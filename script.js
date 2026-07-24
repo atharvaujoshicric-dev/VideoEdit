@@ -7,6 +7,7 @@
 import { FFmpeg } from "https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/esm/index.js";
 import { fetchFile, toBlobURL } from "https://unpkg.com/@ffmpeg/util@0.12.2/dist/esm/index.js";
 
+const FFMPEG_LIB_BASE = "https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/esm";
 const FFMPEG_CORE_BASE = "https://unpkg.com/@ffmpeg/core@0.12.10/dist/esm";
 
 /* ---------------------------------------------------------------
@@ -284,15 +285,22 @@ async function ensureFFmpegLoaded() {
   if (state.ffmpegLoadingPromise) return state.ffmpegLoadingPromise;
 
   dom.ffmpegLoadStatus.hidden = false;
-  dom.ffmpegLoadText.textContent = "Loading the conversion engine (first time only, ~30 MB)…";
+  dom.ffmpegLoadText.textContent = "Downloading the conversion engine (one-time, ~30 MB) — this doesn't limit your video size…";
 
   state.ffmpeg = newFFmpegInstance();
 
   state.ffmpegLoadingPromise = (async () => {
     try {
+      // FFmpeg's default worker URL is resolved relative to where the
+      // @ffmpeg/ffmpeg module itself was imported from (the CDN), which is a
+      // different origin than this page. Browsers refuse to construct a
+      // Worker whose script lives on another origin, no matter what CORS
+      // headers it sends. Fetching it ourselves and handing back a blob: URL
+      // sidesteps that entirely, since blob URLs are same-origin.
+      const classWorkerURL = await toBlobURL(`${FFMPEG_LIB_BASE}/worker.js`, "text/javascript");
       const coreURL = await toBlobURL(`${FFMPEG_CORE_BASE}/ffmpeg-core.js`, "text/javascript");
       const wasmURL = await toBlobURL(`${FFMPEG_CORE_BASE}/ffmpeg-core.wasm`, "application/wasm");
-      await state.ffmpeg.load({ coreURL, wasmURL });
+      await state.ffmpeg.load({ classWorkerURL, coreURL, wasmURL });
       state.ffmpegLoaded = true;
       dom.ffmpegLoadStatus.hidden = true;
       return state.ffmpeg;
@@ -424,11 +432,11 @@ async function handleFile(file) {
     showError("Unsupported file", "Please choose a video file (MOV, MP4, M4V, AVI, MKV, or WebM).");
     return;
   }
-  const MAX_SIZE = 4 * 1024 * 1024 * 1024; // 4 GB soft guard — wasm memory is limited
-  if (file.size > MAX_SIZE) {
+  const WARN_SIZE = 3 * 1024 * 1024 * 1024; // 3 GB — warn, but never block
+  if (file.size > WARN_SIZE) {
     showError(
-      "File may be too large",
-      "This file is very large for browser-based conversion and may run out of memory. Consider trimming it first."
+      "Large file — this may take a while",
+      "Files this large can take a long time to encode in the browser and may run out of memory on lower-RAM devices. It will still be attempted."
     );
   }
 
@@ -611,8 +619,8 @@ async function startConversion() {
     const msg = String(err && err.message || err || "");
     if (/memory|out of bounds|allocation/i.test(msg)) {
       showError("Ran out of memory", "This video may be too large or too high-resolution for your browser to process. Try a shorter clip or a smaller quality preset.");
-    } else if (/SharedArrayBuffer|cross-origin/i.test(msg)) {
-      showError("Engine failed to load", "Your browser blocked a required feature. Try Chrome, Edge, or Firefox with default security settings.");
+    } else if (/SharedArrayBuffer|cross-origin|cannot be accessed from origin|Failed to construct 'Worker'/i.test(msg)) {
+      showError("Engine failed to load", "The conversion engine couldn't be loaded from its CDN in this browser. Try reloading the page, or try Chrome, Edge, or Firefox.");
     } else if (msg) {
       // Show the real diagnostic (ffmpeg exit code + tail of its log) rather than
       // hiding it behind a generic message — this is what actually explains the failure.
