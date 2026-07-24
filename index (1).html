@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>Video Speed Converter — MOV to MP4, locally in your browser</title>
+<meta name="description" content="Change the playback speed of your MOV videos and convert them to MP4 — entirely in your browser. No uploads, no watermarks, no quality loss." />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- Skip link for keyboard/screen-reader users -->
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="app-header">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M4 6C4 4.89543 4.89543 4 6 4H14C15.1046 4 16 4.89543 16 6V18C16 19.1046 15.1046 20 14 20H6C4.89543 20 4 19.1046 4 18V6Z" stroke="currentColor" stroke-width="1.6"/>
+          <path d="M16 9L20.1459 6.85204C20.4756 6.68101 20.8659 6.7031 21.1747 6.91038C21.4835 7.11766 21.6667 7.46001 21.6667 7.82633V16.1737C21.6667 16.54 21.4835 16.8823 21.1747 17.0896C20.8659 17.2969 20.4756 17.319 20.1459 17.148L16 15V9Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+        </svg>
+      </span>
+      <span class="brand-name">Video Speed Converter</span>
+    </div>
+
+    <button id="themeToggle" class="theme-toggle" type="button" aria-label="Change appearance, currently automatic">
+      <svg class="icon-auto" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 3a9 9 0 100 18 9 9 0 000-18zm0 2v14a7 7 0 010-14z" fill="currentColor"/></svg>
+      <svg class="icon-sun" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="4.5" fill="currentColor"/><g stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M12 2v2.2M12 19.8V22M4.2 4.2l1.55 1.55M18.25 18.25l1.55 1.55M2 12h2.2M19.8 12H22M4.2 19.8l1.55-1.55M18.25 5.75l1.55-1.55"/></g></svg>
+      <svg class="icon-moon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 019.5 4 8.5 8.5 0 1020 14.5z" fill="currentColor"/></svg>
+      <span class="theme-toggle-label">Auto</span>
+    </button>
+  </header>
+
+  <main id="main">
+
+    <!-- ============ 1. UPLOAD ============ -->
+    <section id="uploadSection" class="panel upload-panel" aria-labelledby="uploadHeading">
+      <h1 id="uploadHeading">Slow it down. Speed it up. Keep it MP4.</h1>
+      <p class="subhead">Drop in a MOV from your iPhone, pick a speed, and export a clean MP4 — all processed on this device. Nothing is uploaded anywhere.</p>
+
+      <div id="dropzone" class="dropzone" tabindex="0" role="button"
+           aria-label="Upload a video. Drag and drop a file here, or press Enter to browse.">
+        <input id="fileInput" type="file" accept="video/*,.mov,.mp4,.m4v,.avi,.mkv,.webm" class="visually-hidden" aria-hidden="true" tabindex="-1" />
+        <svg class="dropzone-icon" viewBox="0 0 24 24" width="40" height="40" aria-hidden="true">
+          <path d="M12 15V4M12 4L7.5 8.5M12 4l4.5 4.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M4 15v3a2 2 0 002 2h12a2 2 0 002-2v-3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <p class="dropzone-title">Drag &amp; drop your video here</p>
+        <p class="dropzone-sub">or click to browse · MOV, MP4, M4V, AVI, MKV</p>
+      </div>
+
+      <div id="ffmpegLoadStatus" class="ffmpeg-load-status" hidden aria-live="polite">
+        <span class="spinner" aria-hidden="true"></span>
+        <span id="ffmpegLoadText">Loading the conversion engine (first time only, ~30 MB)…</span>
+      </div>
+    </section>
+
+    <!-- ============ 2. WORKSPACE (preview + settings) ============ -->
+    <section id="workspaceSection" class="panel workspace-panel" hidden aria-labelledby="workspaceHeading">
+      <h2 id="workspaceHeading" class="visually-hidden">Video settings</h2>
+
+      <div class="workspace-grid">
+        <div class="preview-col">
+          <div class="video-frame">
+            <video id="sourceVideo" controls playsinline aria-label="Original video preview"></video>
+          </div>
+          <dl id="sourceMeta" class="meta-list" aria-label="Original video details"></dl>
+        </div>
+
+        <div class="settings-col">
+          <div class="field-group">
+            <span class="field-label" id="speedLabel">Playback speed</span>
+            <div id="speedControl" class="chip-row" role="radiogroup" aria-labelledby="speedLabel"></div>
+          </div>
+
+          <div class="field-group">
+            <span class="field-label" id="qualityLabel">Output quality</span>
+            <div id="qualityControl" class="chip-row" role="radiogroup" aria-labelledby="qualityLabel"></div>
+            <p id="qualityHint" class="field-hint"></p>
+          </div>
+
+          <div class="action-row">
+            <button id="convertBtn" class="btn btn-primary" type="button">
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>
+              Convert
+            </button>
+            <button id="resetBtn" class="btn btn-ghost" type="button">Choose a different file</button>
+          </div>
+          <p class="kbd-hint">Shortcuts: <kbd>Space</kbd> play/pause preview · <kbd>Enter</kbd> convert · <kbd>Esc</kbd> cancel</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 3. PROGRESS ============ -->
+    <section id="progressSection" class="panel progress-panel" hidden aria-labelledby="progressHeading">
+      <h2 id="progressHeading">Converting…</h2>
+
+      <div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progressBar">
+        <div id="progressFill" class="progress-fill"></div>
+      </div>
+
+      <div class="progress-stats" aria-live="polite">
+        <span id="progressPercent">0%</span>
+        <span id="progressElapsed">Elapsed 0:00</span>
+        <span id="progressRemaining">Estimating remaining time…</span>
+      </div>
+
+      <details class="log-panel">
+        <summary>Show encoder log</summary>
+        <pre id="ffmpegLog" aria-live="off"></pre>
+      </details>
+
+      <div class="action-row">
+        <button id="cancelBtn" class="btn btn-danger" type="button">Cancel</button>
+      </div>
+    </section>
+
+    <!-- ============ 4. RESULT ============ -->
+    <section id="resultSection" class="panel result-panel" hidden aria-labelledby="resultHeading">
+      <h2 id="resultHeading">Your video is ready</h2>
+
+      <div class="workspace-grid">
+        <div class="preview-col">
+          <div class="video-frame">
+            <video id="resultVideo" controls playsinline aria-label="Converted video preview"></video>
+          </div>
+        </div>
+
+        <div class="settings-col">
+          <dl id="resultStats" class="meta-list stats-list" aria-label="Conversion results"></dl>
+          <div class="action-row">
+            <a id="downloadBtn" class="btn btn-primary" download>
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 3v12m0 0l-4.5-4.5M12 15l4.5-4.5M4 20h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+              Download MP4
+            </a>
+            <button id="convertAnotherBtn" class="btn btn-ghost" type="button">Convert another video</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ ERROR BANNER ============ -->
+    <div id="errorBanner" class="error-banner" role="alert" hidden>
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a1 1 0 00.86 1.5h18.64a1 1 0 00.86-1.5L13.71 3.86a1 1 0 00-1.72 0z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" fill="none"/></svg>
+      <div class="error-body">
+        <p id="errorTitle" class="error-title">Something went wrong</p>
+        <p id="errorMessage" class="error-message"></p>
+      </div>
+      <button id="errorDismiss" class="error-dismiss" type="button" aria-label="Dismiss error">✕</button>
+    </div>
+
+  </main>
+
+  <footer class="app-footer">
+    <p>Runs 100% locally using FFmpeg.wasm. Your video never leaves this device. · <a href="README.md">About &amp; limitations</a></p>
+  </footer>
+
+  <script type="module" src="script.js"></script>
+</body>
+</html>
