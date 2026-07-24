@@ -484,7 +484,15 @@ kbd {
 }
 .error-banner svg { color: var(--danger); flex: none; margin-top: 2px; }
 .error-title { margin: 0; font-weight: 650; font-size: 0.94rem; }
-.error-message { margin: 4px 0 0; font-size: 0.86rem; color: var(--text-secondary); }
+.error-message {
+  margin: 4px 0 0;
+  font-size: 0.86rem;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 160px;
+  overflow-y: auto;
+}
 .error-dismiss {
   border: none; background: none; cursor: pointer;
   color: var(--text-tertiary); font-size: 0.9rem; padding: 2px 4px;
