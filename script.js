@@ -7,7 +7,7 @@
 import { FFmpeg } from "https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/esm/index.js";
 import { fetchFile, toBlobURL } from "https://unpkg.com/@ffmpeg/util@0.12.2/dist/esm/index.js";
 
-const FFMPEG_CORE_BASE = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm";
+const FFMPEG_CORE_BASE = "https://unpkg.com/@ffmpeg/core@0.12.10/dist/esm";
 
 /* ---------------------------------------------------------------
    Constants
@@ -477,6 +477,11 @@ function appendLog(message) {
   dom.ffmpegLog.scrollTop = dom.ffmpegLog.scrollHeight;
 }
 
+function lastLogLines(n) {
+  const lines = dom.ffmpegLog.textContent.split("\n").filter(Boolean);
+  return lines.slice(-n).join("\n");
+}
+
 function updateProgress(fraction) {
   const pct = Math.round(fraction * 100);
   dom.progressFill.style.width = pct + "%";
@@ -493,6 +498,34 @@ function updateProgress(fraction) {
   } else {
     dom.progressRemaining.textContent = "Estimating remaining time…";
   }
+}
+
+async function runEncode({ ffmpeg, inputName, outputName, speed, preset, hasAudio }) {
+  const videoFilter = `setpts=${(1 / speed).toFixed(6)}*PTS`;
+  let filterComplex, maps;
+  if (hasAudio) {
+    const atempo = buildAtempoChain(speed);
+    filterComplex = `[0:v]${videoFilter}[v];[0:a]${atempo}[a]`;
+    maps = ["-map", "[v]", "-map", "[a]"];
+  } else {
+    filterComplex = `[0:v]${videoFilter}[v]`;
+    maps = ["-map", "[v]"];
+  }
+
+  const args = ["-i", inputName, "-filter_complex", filterComplex, ...maps,
+    "-c:v", "libx264", "-crf", String(preset.crf), "-preset", preset.preset,
+    "-pix_fmt", "yuv420p"];
+
+  if (hasAudio) {
+    args.push("-c:a", "aac", "-b:a", preset.audioBitrate);
+  }
+  if (preset.keepMeta) {
+    args.push("-map_metadata", "0");
+  }
+  args.push("-movflags", "+faststart", outputName);
+
+  appendLog("$ ffmpeg " + args.join(" "));
+  return ffmpeg.exec(args);
 }
 
 async function startConversion() {
@@ -521,38 +554,41 @@ async function startConversion() {
     const meta = state.sourceMetadata || {};
     const preset = QUALITY_PRESETS[state.quality];
     const speed = state.speed;
-    const hasAudio = meta.hasAudio !== false;
+    let hasAudio = meta.hasAudio !== false; // default to true when probing didn't run
 
-    const videoFilter = `setpts=${(1 / speed).toFixed(6)}*PTS`;
-    let filterComplex, maps;
-    if (hasAudio) {
-      const atempo = buildAtempoChain(speed);
-      filterComplex = `[0:v]${videoFilter}[v];[0:a]${atempo}[a]`;
-      maps = ["-map", "[v]", "-map", "[a]"];
-    } else {
-      filterComplex = `[0:v]${videoFilter}[v]`;
-      maps = ["-map", "[v]"];
-    }
-
-    const args = ["-i", inputName, "-filter_complex", filterComplex, ...maps,
-      "-c:v", "libx264", "-crf", String(preset.crf), "-preset", preset.preset,
-      "-pix_fmt", "yuv420p"];
-
-    if (hasAudio) {
-      args.push("-c:a", "aac", "-b:a", preset.audioBitrate);
-    }
-    if (preset.keepMeta) {
-      args.push("-map_metadata", "0");
-    }
-    args.push("-movflags", "+faststart", outputName);
-
-    appendLog("$ ffmpeg " + args.join(" "));
-    await ffmpeg.exec(args);
+    let exitCode = await runEncode({ ffmpeg, inputName, outputName, speed, preset, hasAudio });
 
     if (state.cancelled) return;
 
-    const data = await ffmpeg.readFile(outputName);
+    // If encoding with an audio map failed, it's possible probing missed a
+    // silent MOV (e.g. a screen recording with no microphone track) — retry
+    // once, video-only, before giving up.
+    if (exitCode !== 0 && hasAudio) {
+      appendLog("\n[Retrying without an audio track — none may be present]\n");
+      hasAudio = false;
+      exitCode = await runEncode({ ffmpeg, inputName, outputName, speed, preset, hasAudio });
+    }
+
+    if (state.cancelled) return;
+
+    if (exitCode !== 0) {
+      throw new Error(
+        `FFmpeg exited with code ${exitCode}.\n` + lastLogLines(12)
+      );
+    }
+
+    let data;
+    try {
+      data = await ffmpeg.readFile(outputName);
+    } catch (readErr) {
+      throw new Error(
+        "FFmpeg reported success but produced no output file.\n" + lastLogLines(12)
+      );
+    }
     const blob = new Blob([data.buffer], { type: "video/mp4" });
+    if (blob.size === 0) {
+      throw new Error("The output file was empty.\n" + lastLogLines(12));
+    }
 
     try { await ffmpeg.deleteFile(inputName); } catch { /* ignore */ }
     try { await ffmpeg.deleteFile(outputName); } catch { /* ignore */ }
@@ -577,6 +613,10 @@ async function startConversion() {
       showError("Ran out of memory", "This video may be too large or too high-resolution for your browser to process. Try a shorter clip or a smaller quality preset.");
     } else if (/SharedArrayBuffer|cross-origin/i.test(msg)) {
       showError("Engine failed to load", "Your browser blocked a required feature. Try Chrome, Edge, or Firefox with default security settings.");
+    } else if (msg) {
+      // Show the real diagnostic (ffmpeg exit code + tail of its log) rather than
+      // hiding it behind a generic message — this is what actually explains the failure.
+      showError("Conversion failed", msg);
     } else {
       showError("Conversion failed", "The video may be corrupted or in an unsupported format. Try a different file.");
     }
